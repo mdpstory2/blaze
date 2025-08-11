@@ -1,0 +1,44 @@
+[package]
+name = "blaze"
+version = "0.1.0"
+edition = "2021"
+description = "A blazingly fast, chunk-based version control system"
+license = "MIT"
+authors = ["Your Name <your.email@example.com>"]
+repository = "https://github.com/yourusername/blaze"
+keywords = ["version-control", "vcs", "git", "fast", "chunks"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+clap = { version = "4.0", features = ["derive"] }
+rusqlite = { version = "0.29", features = ["bundled"] }
+blake3 = "1.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rayon = "1.7"
+anyhow = "1.0"
+walkdir = "2.3"
+indicatif = "0.17"
+chrono = { version = "0.4", features = ["serde"] }
+memmap2 = "0.7"
+fs2 = "0.4"
+num_cpus = "1.0"
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[[bin]]
+name = "blaze"
+path = "src/main.rs"
+
+[[example]]
+name = "benchmark"
+path = "examples/benchmark.rs"
+
+[[example]]
+name = "integration_test"
+path = "examples/integration_test.rs"
+
+[[example]]
+name = "git_comparison"
+path = "examples/git_comparison.rs"
