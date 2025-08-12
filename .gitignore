@@ -22,8 +22,9 @@
 ehthumbs.db
 Thumbs.db
 
-# Blaze repositories (for testing)
+# Blaze
 **/.blaze/
+.blazeignore
 test/.blaze/
 
 # Temporary files

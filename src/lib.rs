@@ -34,6 +34,6 @@ mod tests {
     fn test_lib_exports() {
         // Basic smoke test to ensure exports work
         let _config = CHUNK_SIZE;
-        assert_eq!(CHUNK_SIZE, 65536);
+        assert_eq!(CHUNK_SIZE, 2097152); // 2MB optimized chunk size
     }
 }

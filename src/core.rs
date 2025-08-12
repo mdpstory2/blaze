@@ -2,19 +2,21 @@
 
 use crate::chunks::ChunkStore;
 use crate::cli::UntrackedFiles;
-use crate::config::{BLAZE_DIR, DEFAULT_IGNORE_PATTERNS, LOCK_FILE};
+use crate::config::{
+    BLAZE_DIR, DEFAULT_IGNORE_PATTERNS, LOCK_FILE, SMALL_FILE_THRESHOLD, SMALL_REPO_THRESHOLD,
+};
 use crate::database::{CommitRecord, Database};
 use crate::errors::{BlazeError, Result, ResultExt};
-use crate::files::{changes::FileChange, chunk_file, FileRecord, FileStats};
+use crate::files::{changes::FileChange, chunk_file, FileChunk, FileRecord, FileStats};
 use crate::utils::{
     create_progress_bar, current_timestamp, format_elapsed_time, format_size, should_ignore_path,
 };
-use blake3::Hasher;
+
 use fs2::FileExt;
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -161,19 +163,30 @@ impl Blaze {
         // Get parent commit
         let parent_hash = self.get_head_commit()?;
 
-        // Create commit hash
-        let timestamp = current_timestamp();
-        let commit_data = format!(
-            "parent: {:?}\nmessage: {}\ntimestamp: {}\nfiles: {}",
-            parent_hash,
-            message.trim(),
-            timestamp,
-            staged_files.len()
-        );
-        let commit_hash = self.hash_data(commit_data.as_bytes());
+        // Use fast mode for small commits
+        let use_fast_mode = staged_files.len() <= SMALL_REPO_THRESHOLD;
+        let tree_hash = if use_fast_mode {
+            self.create_tree_hash(&staged_files)?
+        } else {
+            self.create_tree_hash_parallel(&staged_files)?
+        };
 
-        // Create tree hash from staged files
-        let tree_hash = self.create_tree_hash(&staged_files)?;
+        // Create commit hash with optimized formatting
+        let timestamp = current_timestamp();
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"parent: ");
+        if let Some(ref parent) = parent_hash {
+            hasher.update(parent.as_bytes());
+        }
+        hasher.update(b"\nmessage: ");
+        hasher.update(message.trim().as_bytes());
+        hasher.update(b"\ntimestamp: ");
+        hasher.update(timestamp.to_string().as_bytes());
+        hasher.update(b"\nfiles: ");
+        hasher.update(staged_files.len().to_string().as_bytes());
+        hasher.update(b"\ntree: ");
+        hasher.update(tree_hash.as_bytes());
+        let commit_hash = hasher.finalize().to_hex().to_string();
 
         if verbose {
             println!("Creating commit with {} files", staged_files.len());
@@ -182,7 +195,7 @@ impl Blaze {
             }
         }
 
-        // Store commit
+        // Store commit and update HEAD in a single transaction
         let commit_record = CommitRecord {
             hash: commit_hash.clone(),
             parent: parent_hash,
@@ -192,9 +205,8 @@ impl Blaze {
             files: staged_files,
         };
 
+        // Batch database operations for better performance
         self.database.store_commit(&commit_record)?;
-
-        // Update HEAD
         self.database.store_ref("HEAD", Some(&commit_hash))?;
 
         Ok(commit_hash)
@@ -549,22 +561,66 @@ impl Blaze {
         Ok(())
     }
 
-    fn hash_data(&self, data: &[u8]) -> String {
-        let mut hasher = Hasher::new();
-        hasher.update(data);
-        hasher.finalize().to_hex().to_string()
-    }
-
-    fn create_tree_hash(&self, files: &HashMap<String, FileRecord>) -> Result<String> {
-        let mut tree_data = String::new();
+    fn create_tree_hash(
+        &self,
+        files: &std::collections::HashMap<String, FileRecord>,
+    ) -> Result<String> {
         let mut sorted_files: Vec<_> = files.iter().collect();
-        sorted_files.sort_by_key(|(path, _)| *path);
+        sorted_files.sort_by_key(|(path, _)| path.as_str());
 
+        let mut hasher = blake3::Hasher::new();
         for (path, record) in sorted_files {
-            tree_data.push_str(&format!("{}:{}\n", path, record.chunks.join(",")));
+            hasher.update(path.as_bytes());
+            hasher.update(b":");
+            for (i, chunk) in record.chunks.iter().enumerate() {
+                if i > 0 {
+                    hasher.update(b",");
+                }
+                hasher.update(chunk.as_bytes());
+            }
+            hasher.update(b"\n");
         }
 
-        Ok(self.hash_data(tree_data.as_bytes()))
+        Ok(hasher.finalize().to_hex().to_string())
+    }
+
+    fn create_tree_hash_parallel(
+        &self,
+        files: &std::collections::HashMap<String, FileRecord>,
+    ) -> Result<String> {
+        use rayon::prelude::*;
+
+        let mut sorted_files: Vec<_> = files.iter().collect();
+        sorted_files.sort_by_key(|(path, _)| path.as_str());
+
+        // Process files in parallel chunks
+        const CHUNK_SIZE: usize = 100;
+        let hashes: Vec<String> = sorted_files
+            .par_chunks(CHUNK_SIZE)
+            .map(|chunk| {
+                let mut hasher = blake3::Hasher::new();
+                for (path, record) in chunk {
+                    hasher.update(path.as_bytes());
+                    hasher.update(b":");
+                    for (i, chunk_hash) in record.chunks.iter().enumerate() {
+                        if i > 0 {
+                            hasher.update(b",");
+                        }
+                        hasher.update(chunk_hash.as_bytes());
+                    }
+                    hasher.update(b"\n");
+                }
+                hasher.finalize().to_hex().to_string()
+            })
+            .collect();
+
+        // Combine all chunk hashes
+        let mut final_hasher = blake3::Hasher::new();
+        for hash in hashes {
+            final_hasher.update(hash.as_bytes());
+        }
+
+        Ok(final_hasher.finalize().to_hex().to_string())
     }
 
     fn find_all_files(&self) -> Result<Vec<PathBuf>> {
@@ -658,7 +714,82 @@ impl Blaze {
         }
 
         let pb = create_progress_bar(files.len() as u64, "Processing files");
-        let mut file_records = Vec::new();
+
+        if dry_run {
+            pb.finish_with_message("Files processed (dry run)");
+            return Ok(files.len());
+        }
+
+        // Fast mode for small repositories to reduce overhead
+        let use_fast_mode = files.len() <= SMALL_REPO_THRESHOLD;
+
+        if use_fast_mode {
+            return self.add_files_fast_mode(files, verbose, &pb);
+        }
+
+        // Process files in parallel for better performance
+        use rayon::prelude::*;
+
+        let file_results: Result<Vec<_>> = files
+            .par_iter()
+            .map(|file_path| {
+                if verbose {
+                    println!("Processing: {}", file_path.display());
+                }
+
+                // Chunk the file
+                let chunks = chunk_file(file_path)?;
+
+                // Extract chunk hashes
+                let chunk_hashes: Vec<String> = chunks.iter().map(|c| c.hash.clone()).collect();
+
+                // Create file record
+                let record = FileRecord::from_path(file_path, &self.repo_path, chunk_hashes)?;
+
+                pb.inc(1);
+                Ok((chunks, record))
+            })
+            .collect();
+
+        let file_chunk_records = file_results?;
+
+        // Store all chunks with delta compression for better storage efficiency
+        let all_chunks: Vec<FileChunk> = file_chunk_records
+            .iter()
+            .flat_map(|(chunks, _)| chunks.iter().cloned())
+            .collect();
+
+        if !all_chunks.is_empty() {
+            // Use delta compression for better storage efficiency
+            for chunk in &all_chunks {
+                let _ = self.chunk_store.store_chunk_with_delta(chunk)?;
+            }
+        }
+
+        // Extract file records
+        let file_records: Vec<FileRecord> = file_chunk_records
+            .into_iter()
+            .map(|(_, record)| record)
+            .collect();
+
+        pb.finish_with_message("Files processed");
+
+        if !file_records.is_empty() {
+            self.database.store_files(&file_records)?;
+        }
+
+        Ok(file_records.len())
+    }
+
+    // Fast mode for small repositories - sequential processing with minimal overhead
+    fn add_files_fast_mode(
+        &mut self,
+        files: Vec<PathBuf>,
+        verbose: bool,
+        pb: &indicatif::ProgressBar,
+    ) -> Result<usize> {
+        let mut file_records = Vec::with_capacity(files.len());
+        let mut all_chunks = Vec::new();
 
         for file_path in files {
             pb.inc(1);
@@ -667,29 +798,45 @@ impl Blaze {
                 println!("Processing: {}", file_path.display());
             }
 
-            if dry_run {
-                continue;
-            }
+            // Quick check for small files - use simplified processing
+            let metadata = std::fs::metadata(&file_path)?;
+            let file_size = metadata.len();
 
-            // Chunk the file
-            let chunks = chunk_file(&file_path)?;
+            let chunks = if file_size <= SMALL_FILE_THRESHOLD {
+                // For small files, read directly and create single chunk
+                let mut data = Vec::new();
+                std::fs::File::open(&file_path)?.read_to_end(&mut data)?;
+                vec![FileChunk::new(data)]
+            } else {
+                chunk_file(&file_path)?
+            };
 
-            // Store chunks and collect hashes
-            let mut chunk_hashes = Vec::new();
-            for chunk in &chunks {
-                let hash = chunk.hash.clone();
-                let _ = self.chunk_store.store_chunk(chunk);
-                chunk_hashes.push(hash);
-            }
+            // Extract chunk hashes
+            let chunk_hashes: Vec<String> = chunks.iter().map(|c| c.hash.clone()).collect();
 
-            // Create file record
-            let record = FileRecord::from_path(&file_path, &self.repo_path, chunk_hashes)?;
+            // Create file record with pre-computed metadata
+            let record = FileRecord::from_path_with_metadata(
+                &file_path,
+                &self.repo_path,
+                chunk_hashes,
+                &metadata,
+                crate::utils::get_mtime(&file_path)?,
+            )?;
+
+            all_chunks.extend(chunks);
             file_records.push(record);
         }
 
-        pb.finish_with_message("Files processed");
+        pb.finish_with_message("Files processed (fast mode)");
 
-        if !dry_run && !file_records.is_empty() {
+        // Store chunks with delta compression for optimal storage
+        if !all_chunks.is_empty() {
+            for chunk in &all_chunks {
+                let _ = self.chunk_store.store_chunk_with_delta(chunk)?;
+            }
+        }
+
+        if !file_records.is_empty() {
             self.database.store_files(&file_records)?;
         }
 

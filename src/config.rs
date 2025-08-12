@@ -1,10 +1,10 @@
 //! Configuration constants and settings for Blaze VCS
 
-/// Size of chunks for file processing (64KB)
-pub const CHUNK_SIZE: usize = 64 * 1024;
+/// Size of chunks for file processing (2MB - optimized for storage efficiency)
+pub const CHUNK_SIZE: usize = 2 * 1024 * 1024;
 
-/// Threshold for considering a file "large" (100MB)
-pub const LARGE_FILE_THRESHOLD: u64 = 100 * 1024 * 1024;
+/// Threshold for considering a file "large" (10MB - optimized for memory mapping with larger chunks)
+pub const LARGE_FILE_THRESHOLD: u64 = 10 * 1024 * 1024;
 
 /// Name of the Blaze repository directory
 pub const BLAZE_DIR: &str = ".blaze";
@@ -33,10 +33,16 @@ pub const PROGRESS_REFRESH_RATE: u64 = 100;
 pub const DB_TIMEOUT: u32 = 30;
 
 /// Maximum size for in-memory file processing before using disk buffering
-pub const MAX_MEMORY_BUFFER: usize = 32 * 1024 * 1024; // 32MB
+pub const MAX_MEMORY_BUFFER: usize = 128 * 1024 * 1024; // 128MB - more aggressive caching
 
 /// Compression level for chunk storage (0-9, where 9 is highest compression)
-pub const COMPRESSION_LEVEL: u32 = 6;
+pub const COMPRESSION_LEVEL: u32 = 6; // Balanced compression for better storage efficiency
+
+/// Small file threshold for fast mode optimizations
+pub const SMALL_FILE_THRESHOLD: u64 = 10 * 1024; // 10KB
+
+/// Small repository threshold (number of files)
+pub const SMALL_REPO_THRESHOLD: usize = 50;
 
 /// File extensions that should always be treated as binary
 pub const BINARY_EXTENSIONS: &[&str] = &[
@@ -91,9 +97,9 @@ pub struct PerformanceConfig {
 impl Default for PerformanceConfig {
     fn default() -> Self {
         Self {
-            worker_threads: get_max_parallel_threads(),
-            read_buffer_size: CHUNK_SIZE,
-            write_buffer_size: CHUNK_SIZE,
+            worker_threads: (get_max_parallel_threads() * 2).max(8), // More aggressive threading
+            read_buffer_size: CHUNK_SIZE * 2,                        // Larger buffers
+            write_buffer_size: CHUNK_SIZE * 2,
             use_memory_mapping: true,
             enable_compression: true,
         }
@@ -117,8 +123,8 @@ impl Default for DatabaseConfig {
         Self {
             timeout: DB_TIMEOUT,
             enable_wal_mode: true,
-            cache_size: 8192, // 8MB
-            enable_foreign_keys: true,
+            cache_size: 32768, // 32MB - larger cache for better performance
+            enable_foreign_keys: false, // Disable for better performance
         }
     }
 }

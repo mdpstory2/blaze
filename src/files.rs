@@ -5,7 +5,7 @@ use crate::errors::{BlazeError, Result, ResultExt};
 use crate::utils::{get_mtime, is_binary_file};
 use blake3::Hasher;
 use memmap2::MmapOptions;
-use rayon::prelude::*;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
@@ -31,7 +31,7 @@ pub struct FileRecord {
 }
 
 impl FileRecord {
-    /// Create a new FileRecord from a file path
+    /// Create a new FileRecord from a file path with optimized metadata reading
     pub fn from_path<P: AsRef<Path>>(
         file_path: P,
         repo_root: P,
@@ -52,7 +52,36 @@ impl FileRecord {
         let size = metadata.len();
 
         Ok(FileRecord {
-            path: relative_path.to_string_lossy().to_string(),
+            path: relative_path.to_string_lossy().into_owned(),
+            chunks,
+            size,
+            mtime,
+            permissions,
+            is_executable,
+        })
+    }
+
+    /// Create a new FileRecord from existing metadata (avoid extra syscalls)
+    pub fn from_path_with_metadata<P: AsRef<Path>>(
+        file_path: P,
+        repo_root: P,
+        chunks: Vec<String>,
+        metadata: &std::fs::Metadata,
+        mtime: u64,
+    ) -> Result<Self> {
+        let file_path = file_path.as_ref();
+        let repo_root = repo_root.as_ref();
+
+        let relative_path = file_path
+            .strip_prefix(repo_root)
+            .map_err(|e| BlazeError::Path(format!("Invalid file path: {}", e)))?;
+
+        let permissions = metadata.permissions().mode();
+        let is_executable = permissions & 0o111 != 0;
+        let size = metadata.len();
+
+        Ok(FileRecord {
+            path: relative_path.to_string_lossy().into_owned(),
             chunks,
             size,
             mtime,
@@ -127,11 +156,17 @@ pub struct FileChunk {
 }
 
 impl FileChunk {
-    /// Create a new chunk from raw data
+    /// Create a new chunk from raw data with optimized hashing
     pub fn new(data: Vec<u8>) -> Self {
-        let hash = compute_chunk_hash(&data);
         let size = data.len();
+        let hash = compute_chunk_hash(&data);
 
+        FileChunk { hash, size, data }
+    }
+
+    /// Create a new chunk from raw data with pre-computed hash (for performance)
+    pub fn new_with_hash(data: Vec<u8>, hash: String) -> Self {
+        let size = data.len();
         FileChunk { hash, size, data }
     }
 
@@ -141,62 +176,168 @@ impl FileChunk {
     }
 }
 
-/// Compute the BLAKE3 hash of chunk data
+/// Compute the BLAKE3 hash of chunk data with optimized performance
 pub fn compute_chunk_hash(data: &[u8]) -> String {
-    let mut hasher = Hasher::new();
-    hasher.update(data);
-    hasher.finalize().to_hex().to_string()
+    // For very small data, use the most direct approach
+    if data.len() < 128 {
+        blake3::hash(data).to_hex().to_string()
+    } else {
+        let mut hasher = Hasher::new();
+        hasher.update(data);
+        hasher.finalize().to_hex().to_string()
+    }
 }
 
-/// Chunk a file into smaller pieces for storage
+/// Batch compute hashes for multiple data chunks (parallel processing)
+pub fn compute_chunk_hashes_batch(data_chunks: &[&[u8]]) -> Vec<String> {
+    use rayon::prelude::*;
+
+    // Increase threshold to avoid parallel overhead for small batches
+    if data_chunks.len() < 8 {
+        // Sequential for small batches to avoid thread overhead
+        data_chunks
+            .iter()
+            .map(|data| compute_chunk_hash(data))
+            .collect()
+    } else {
+        // Parallel for larger batches
+        data_chunks
+            .par_iter()
+            .map(|data| compute_chunk_hash(data))
+            .collect()
+    }
+}
+
+/// Chunk a file into smaller pieces for storage with content-aware deduplication
 pub fn chunk_file<P: AsRef<Path>>(file_path: P) -> Result<Vec<FileChunk>> {
     let file_path = file_path.as_ref();
     let file = File::open(file_path)
         .with_context(|| format!("Failed to open file: {}", file_path.display()))?;
 
-    let file_size = file.metadata()?.len();
+    let metadata = file.metadata()?;
+    let file_size = metadata.len();
 
-    if file_size > LARGE_FILE_THRESHOLD {
-        chunk_large_file(file, file_size)
+    // Optimize for very small files - process in memory without chunking overhead
+    if file_size < CHUNK_SIZE as u64 / 4 {
+        chunk_small_file_optimized(file, file_size as usize)
+    } else if file_size > LARGE_FILE_THRESHOLD {
+        // Use content-aware chunking for large files
+        chunk_large_file_content_aware(file, file_size)
     } else {
-        chunk_regular_file(file)
+        // Use content-aware chunking for better deduplication
+        chunk_regular_file_content_aware(file)
     }
 }
 
-/// Chunk a regular-sized file using buffered reading
-fn chunk_regular_file(mut file: File) -> Result<Vec<FileChunk>> {
-    let mut chunks = Vec::new();
-    let mut buffer = vec![0u8; CHUNK_SIZE];
+/// Chunk a small file (< 16KB) efficiently in memory
+fn chunk_small_file_optimized(mut file: File, file_size: usize) -> Result<Vec<FileChunk>> {
+    if file_size == 0 {
+        return Ok(vec![FileChunk::new(vec![])]);
+    }
 
-    loop {
-        let bytes_read = file.read(&mut buffer)?;
-        if bytes_read == 0 {
+    // Pre-allocate vector with exact size to avoid reallocations
+    let mut data = Vec::with_capacity(file_size);
+    file.read_to_end(&mut data)?;
+
+    // For very small files (< 1KB), use fast path with pre-computed hash
+    if file_size < 1024 {
+        let hash = blake3::hash(&data).to_hex().to_string();
+        Ok(vec![FileChunk::new_with_hash(data, hash)])
+    } else {
+        // For small files, just create one chunk normally
+        Ok(vec![FileChunk::new(data)])
+    }
+}
+
+/// Content-aware chunking for regular files using rolling hash
+fn chunk_regular_file_content_aware(mut file: File) -> Result<Vec<FileChunk>> {
+    let mut data = Vec::new();
+    file.read_to_end(&mut data)?;
+
+    if data.is_empty() {
+        return Ok(vec![FileChunk::new(vec![])]);
+    }
+
+    // Use content-aware chunking with rolling hash
+    content_aware_chunking(&data)
+}
+
+/// Content-aware chunking for large files using memory mapping and rolling hash
+fn chunk_large_file_content_aware(file: File, _file_size: u64) -> Result<Vec<FileChunk>> {
+    let mmap = unsafe { MmapOptions::new().map(&file).map_err(BlazeError::Io)? };
+
+    // Use content-aware chunking for better deduplication
+    content_aware_chunking(&mmap)
+}
+
+/// Content-aware chunking using rolling hash (similar to rsync algorithm)
+fn content_aware_chunking(data: &[u8]) -> Result<Vec<FileChunk>> {
+    if data.is_empty() {
+        return Ok(vec![FileChunk::new(vec![])]);
+    }
+
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    let min_chunk_size = CHUNK_SIZE / 4; // 512KB minimum
+    let max_chunk_size = CHUNK_SIZE * 4; // 8MB maximum
+    let window_size = 64;
+
+    if data.len() <= max_chunk_size {
+        // For small files, don't chunk - better compression
+        return Ok(vec![FileChunk::new(data.to_vec())]);
+    }
+
+    while start < data.len() {
+        let remaining = data.len() - start;
+
+        if remaining <= max_chunk_size {
+            // Last chunk
+            chunks.push(FileChunk::new(data[start..].to_vec()));
             break;
         }
 
-        let chunk_data = buffer[..bytes_read].to_vec();
-        chunks.push(FileChunk::new(chunk_data));
+        // Find chunk boundary using rolling hash
+        let mut chunk_end = start + min_chunk_size;
+        let search_end = std::cmp::min(start + max_chunk_size, data.len());
+
+        // Look for natural boundaries (patterns that repeat)
+        let mut found_boundary = false;
+
+        if chunk_end + window_size <= search_end {
+            for pos in (chunk_end..search_end - window_size).step_by(1024) {
+                let window = &data[pos..pos + window_size];
+
+                // Use simple hash to find boundaries (lines, repeated patterns, etc.)
+                let hash = simple_rolling_hash(window);
+
+                // Target specific hash values that indicate good chunk boundaries
+                if hash % 4096 == 0 {
+                    // Approximately 1/4096 chance
+                    chunk_end = pos;
+                    found_boundary = true;
+                    break;
+                }
+            }
+        }
+
+        if !found_boundary {
+            chunk_end = std::cmp::min(start + CHUNK_SIZE, data.len());
+        }
+
+        chunks.push(FileChunk::new(data[start..chunk_end].to_vec()));
+        start = chunk_end;
     }
 
     Ok(chunks)
 }
 
-/// Chunk a large file using memory mapping for better performance
-fn chunk_large_file(file: File, file_size: u64) -> Result<Vec<FileChunk>> {
-    let mmap = unsafe { MmapOptions::new().map(&file).map_err(BlazeError::Io)? };
-
-    let chunk_count = (file_size as usize).div_ceil(CHUNK_SIZE);
-    let chunks: Result<Vec<_>> = (0..chunk_count)
-        .into_par_iter()
-        .map(|i| {
-            let start = i * CHUNK_SIZE;
-            let end = std::cmp::min(start + CHUNK_SIZE, mmap.len());
-            let chunk_data = mmap[start..end].to_vec();
-            Ok(FileChunk::new(chunk_data))
-        })
-        .collect();
-
-    chunks
+/// Simple rolling hash for content-aware chunking
+fn simple_rolling_hash(data: &[u8]) -> u32 {
+    let mut hash: u32 = 0;
+    for &byte in data {
+        hash = hash.wrapping_mul(31).wrapping_add(byte as u32);
+    }
+    hash
 }
 
 /// Reconstruct a file from its chunks
