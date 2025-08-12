@@ -113,23 +113,6 @@ pub enum Commands {
         new_branch: Option<String>,
     },
 
-    /// Show differences between commits, files, or working tree
-    #[command(alias = "d")]
-    Diff {
-        /// First commit to compare (default: working tree)
-        #[arg()]
-        from: Option<String>,
-        /// Second commit to compare (default: HEAD)
-        #[arg()]
-        to: Option<String>,
-        /// Show only names of changed files
-        #[arg(long)]
-        name_only: bool,
-        /// Show statistics about changes
-        #[arg(long)]
-        stat: bool,
-    },
-
     /// List, create, or delete branches
     #[command(alias = "br")]
     Branch {
@@ -144,19 +127,6 @@ pub enum Commands {
         /// Show all branches
         #[arg(short = 'a', long)]
         all: bool,
-    },
-
-    /// Merge changes from another branch
-    #[command(alias = "m")]
-    Merge {
-        /// Branch to merge from
-        branch: String,
-        /// Custom merge message
-        #[arg(short, long)]
-        message: Option<String>,
-        /// Perform merge without creating a merge commit
-        #[arg(long)]
-        squash: bool,
     },
 
     /// Show repository statistics and health information
@@ -199,34 +169,6 @@ pub enum Commands {
         /// Show what would be optimized without doing it
         #[arg(long)]
         dry_run: bool,
-    },
-
-    /// Clone a repository from a remote location
-    Clone {
-        /// Source repository URL or path
-        source: String,
-        /// Destination directory (optional)
-        destination: Option<String>,
-        /// Clone only the latest commit (shallow clone)
-        #[arg(long)]
-        shallow: bool,
-        /// Number of parallel threads for cloning
-        #[arg(long, value_name = "COUNT")]
-        jobs: Option<usize>,
-    },
-
-    /// Show configuration settings
-    Config {
-        /// Configuration key to get/set
-        key: Option<String>,
-        /// Value to set (if key is provided)
-        value: Option<String>,
-        /// List all configuration settings
-        #[arg(short, long)]
-        list: bool,
-        /// Edit configuration in default editor
-        #[arg(short, long)]
-        edit: bool,
     },
 }
 
@@ -324,15 +266,6 @@ pub fn run() -> Result<()> {
             println!("✅ Checkout complete");
         }
 
-        Commands::Diff {
-            from,
-            to,
-            name_only,
-            stat,
-        } => {
-            blaze.diff(from, to, name_only, stat)?;
-        }
-
         Commands::Branch {
             name,
             delete,
@@ -350,16 +283,6 @@ pub fn run() -> Result<()> {
             } else {
                 blaze.list_branches(all)?;
             }
-        }
-
-        Commands::Merge {
-            branch,
-            message,
-            squash,
-        } => {
-            println!("🔀 Merging branch '{}'", branch);
-            let merge_result = blaze.merge(&branch, message, squash)?;
-            println!("✅ Merge complete: {}", merge_result);
         }
 
         Commands::Stats {
@@ -407,44 +330,6 @@ pub fn run() -> Result<()> {
 
             if !dry_run {
                 println!("✅ Optimization complete: {}", stats);
-            }
-        }
-
-        Commands::Clone {
-            source,
-            destination,
-            shallow,
-            jobs,
-        } => {
-            let dest = destination.as_deref().unwrap_or(".");
-            println!("📥 Cloning repository from '{}' to '{}'", source, dest);
-
-            blaze.clone(&source, dest, shallow, jobs)?;
-            println!("✅ Clone complete");
-        }
-
-        Commands::Config {
-            key,
-            value,
-            list,
-            edit,
-        } => {
-            if list {
-                blaze.list_config()?;
-            } else if edit {
-                blaze.edit_config()?;
-            } else if let Some(k) = key {
-                if let Some(v) = value {
-                    blaze.set_config(&k, &v)?;
-                    println!("🔧 Set {} = {}", k, v);
-                } else {
-                    let val = blaze.get_config(&k)?;
-                    println!("{}", val);
-                }
-            } else {
-                return Err(BlazeError::Validation(
-                    "Must specify --list, --edit, or provide key/value".to_string(),
-                ));
             }
         }
     }
@@ -504,7 +389,7 @@ mod tests {
     #[test]
     fn test_cli_parsing() {
         // Test basic init command
-        let cli = Cli::try_parse_from(&["blaze", "init"]).unwrap();
+        let cli = Cli::try_parse_from(["blaze", "init"]).unwrap();
         match cli.command {
             Commands::Init {
                 path,
@@ -519,7 +404,7 @@ mod tests {
         }
 
         // Test add command with flags
-        let cli = Cli::try_parse_from(&["blaze", "add", "--verbose", "file.txt"]).unwrap();
+        let cli = Cli::try_parse_from(["blaze", "add", "--verbose", "file.txt"]).unwrap();
         match cli.command {
             Commands::Add {
                 files,
@@ -536,7 +421,7 @@ mod tests {
         }
 
         // Test commit with message
-        let cli = Cli::try_parse_from(&["blaze", "commit", "-m", "Test commit"]).unwrap();
+        let cli = Cli::try_parse_from(["blaze", "commit", "-m", "Test commit"]).unwrap();
         match cli.command {
             Commands::Commit {
                 message,

@@ -98,18 +98,16 @@ pub fn should_ignore_path<P: AsRef<Path>>(path: P, patterns: &[&str]) -> bool {
     let path_str = normalize_path(path);
 
     for pattern in patterns {
-        if pattern.ends_with('/') {
+        if let Some(dir_pattern) = pattern.strip_suffix('/') {
             // Directory pattern
-            let dir_pattern = &pattern[..pattern.len() - 1];
             if path_str.starts_with(dir_pattern)
                 && (path_str.len() == dir_pattern.len()
                     || path_str.chars().nth(dir_pattern.len()) == Some('/'))
             {
                 return true;
             }
-        } else if pattern.starts_with("*.") {
+        } else if let Some(ext) = pattern.strip_prefix("*.") {
             // Extension pattern
-            let ext = &pattern[2..];
             if path_str.ends_with(&format!(".{}", ext)) {
                 return true;
             }

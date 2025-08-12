@@ -1,8 +1,8 @@
 #!/usr/bin/env cargo script
 
-//! FastVC Integration Test Example
+//! Blaze Integration Test Example
 //!
-//! This example demonstrates a comprehensive workflow using FastVC,
+//! This example demonstrates a comprehensive workflow using Blaze,
 //! showcasing all major features in a realistic scenario.
 //!
 //! Run with: cargo run --example integration_test
@@ -14,6 +14,7 @@ use std::process::Command;
 use tempfile::TempDir;
 
 struct TestProject {
+    #[allow(dead_code)]
     temp_dir: TempDir,
     project_path: PathBuf,
 }
@@ -45,28 +46,29 @@ impl TestProject {
         Ok(())
     }
 
-    fn run_fastvc(&self, args: &[&str]) -> std::io::Result<String> {
+    fn run_blaze(&self, args: &[&str]) -> std::io::Result<String> {
         // Get the current working directory to find the binary
         let current_dir = std::env::current_dir()?;
-        let fastvc_binary = current_dir.join("target/release/fastvc");
+        let blaze_binary = current_dir.join("target/release/blaze");
 
-        let output = Command::new(&fastvc_binary)
+        let output = Command::new(&blaze_binary)
             .current_dir(&self.project_path)
             .args(args)
             .output()?;
 
         if !output.status.success() {
-            eprintln!("FastVC command failed: {:?}", args);
+            eprintln!("Blaze command failed: {:?}", args);
             eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("FastVC command failed: {:?}", args),
-            ));
+            return Err(std::io::Error::other(format!(
+                "Blaze command failed: {:?}",
+                args
+            )));
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
+    #[allow(dead_code)]
     fn file_exists(&self, relative_path: &str) -> bool {
         self.project_path.join(relative_path).exists()
     }
@@ -90,44 +92,41 @@ fn info(message: &str) {
 }
 
 fn main() -> std::io::Result<()> {
-    println!("FastVC Integration Test");
+    println!("Blaze Integration Test");
     println!("======================");
-    println!("This test demonstrates a complete FastVC workflow");
+    println!("This test demonstrates a complete Blaze workflow");
 
-    // Build FastVC if needed
+    // Build Blaze if needed
     let current_dir = std::env::current_dir()?;
-    let fastvc_binary = current_dir.join("target/release/fastvc");
+    let blaze_binary = current_dir.join("target/release/blaze");
 
-    if !fastvc_binary.exists() {
-        println!("\n🔨 Building FastVC in release mode...");
+    if !blaze_binary.exists() {
+        println!("\n🔨 Building Blaze in release mode...");
         let build_result = Command::new("cargo")
-            .args(&["build", "--release"])
+            .args(["build", "--release"])
             .current_dir(&current_dir)
             .status()?;
 
         if !build_result.success() {
-            eprintln!("❌ Failed to build FastVC");
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Build failed",
-            ));
+            eprintln!("❌ Failed to build Blaze");
+            return Err(std::io::Error::other("Build failed"));
         }
-        success("FastVC built successfully");
+        success("Blaze built successfully");
     }
 
     let project = TestProject::new()?;
     info(&format!("Test project created at: {:?}", project.path()));
 
     // Step 1: Initialize repository
-    step(1, "Initialize FastVC repository");
-    let init_output = project.run_fastvc(&["init"])?;
+    step(1, "Initialize Blaze repository");
+    let init_output = project.run_blaze(&["init"])?;
     success("Repository initialized");
     println!("{}", init_output);
 
     // Step 2: Create initial project structure
     step(2, "Create initial project files");
     project.create_file("README.md",
-        "# My Project\n\nThis is a test project for FastVC.\n\n## Features\n- Version control\n- Fast operations\n- Deduplication\n"
+        "# My Project\n\nThis is a test project for Blaze.\n\n## Features\n- Version control\n- Fast operations\n- Deduplication\n"
     )?;
 
     project.create_file(
@@ -148,30 +147,30 @@ fn main() -> std::io::Result<()> {
 
     // Step 3: Check status before adding
     step(3, "Check repository status");
-    let status_output = project.run_fastvc(&["status"])?;
+    let status_output = project.run_blaze(&["status"])?;
     println!("{}", status_output);
 
     // Step 4: Add files to staging
     step(4, "Add files to staging area");
-    let add_output = project.run_fastvc(&["add", "."])?;
+    let add_output = project.run_blaze(&["add", "."])?;
     println!("{}", add_output);
     success("Files added to staging area");
 
     // Step 5: Check status after adding
     step(5, "Check status after staging");
-    let status_output = project.run_fastvc(&["status"])?;
+    let status_output = project.run_blaze(&["status"])?;
     println!("{}", status_output);
 
     // Step 6: Make initial commit
     step(6, "Create initial commit");
     let commit_output =
-        project.run_fastvc(&["commit", "-m", "Initial commit: Add project structure"])?;
+        project.run_blaze(&["commit", "-m", "Initial commit: Add project structure"])?;
     println!("{}", commit_output);
     success("Initial commit created");
 
     // Step 7: Show commit log
     step(7, "View commit history");
-    let log_output = project.run_fastvc(&["log"])?;
+    let log_output = project.run_blaze(&["log"])?;
     println!("{}", log_output);
 
     // Step 8: Create more files and demonstrate deduplication
@@ -186,21 +185,21 @@ fn main() -> std::io::Result<()> {
 
     // Add some unique content too
     project.create_file("docs/guide.md",
-        "# User Guide\n\n## Installation\n\nInstall FastVC by building from source.\n\n## Usage\n\nRun `fastvc init` to start.\n"
+        "# User Guide\n\n## Installation\n\nInstall Blaze by building from source.\n\n## Usage\n\nRun `blaze init` to start.\n"
     )?;
 
     success("Created duplicate files for deduplication test");
 
     // Step 9: Add and commit new files
     step(9, "Add new files and commit");
-    project.run_fastvc(&["add", "."])?;
-    let commit_output = project.run_fastvc(&["commit", "-m", "Add documentation and test data"])?;
+    project.run_blaze(&["add", "."])?;
+    let commit_output = project.run_blaze(&["commit", "-m", "Add documentation and test data"])?;
     println!("{}", commit_output);
     success("Second commit created");
 
     // Step 10: Show repository statistics
     step(10, "Display repository statistics");
-    let stats_output = project.run_fastvc(&["stats"])?;
+    let stats_output = project.run_blaze(&["stats"])?;
     println!("{}", stats_output);
     info("Notice the deduplication savings from identical content!");
 
@@ -219,27 +218,22 @@ fn main() -> std::io::Result<()> {
 
     // Step 12: Show current status
     step(12, "Check status of modified files");
-    let status_output = project.run_fastvc(&["status"])?;
+    let status_output = project.run_blaze(&["status"])?;
     println!("{}", status_output);
     info("No files in staging - modifications are in working directory only");
 
     // Step 13: Get commit hash and checkout
     step(13, "Checkout previous commit to restore files");
-    let log_output = project.run_fastvc(&["log", "--limit", "1"])?;
+    let log_output = project.run_blaze(&["log", "--limit", "1"])?;
 
     // Extract commit hash from log output
     let commit_hash = log_output
         .lines()
         .find(|line| line.starts_with("Commit: "))
         .and_then(|line| line.strip_prefix("Commit: "))
-        .ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Could not extract commit hash from log",
-            )
-        })?;
+        .ok_or_else(|| std::io::Error::other("Could not extract commit hash from log"))?;
 
-    let checkout_output = project.run_fastvc(&["checkout", commit_hash])?;
+    let checkout_output = project.run_blaze(&["checkout", commit_hash])?;
     println!("{}", checkout_output);
     success("Files restored from previous commit");
 
@@ -262,31 +256,30 @@ fn main() -> std::io::Result<()> {
 
     // Step 15: Test verification
     step(15, "Verify repository integrity");
-    let verify_output = project.run_fastvc(&["verify"])?;
+    let verify_output = project.run_blaze(&["verify"])?;
     println!("{}", verify_output);
     success("Repository integrity verified");
 
     // Step 16: Create a large file to test chunking
     step(16, "Test large file handling");
-    let large_content = "FastVC handles large files efficiently through chunking.\n".repeat(10000);
+    let large_content = "Blaze handles large files efficiently through chunking.\n".repeat(10000);
     project.create_file("large_file.txt", &large_content)?;
 
-    let add_output = project.run_fastvc(&["add", "large_file.txt"])?;
+    let add_output = project.run_blaze(&["add", "large_file.txt"])?;
     println!("{}", add_output);
 
-    let commit_output =
-        project.run_fastvc(&["commit", "-m", "Add large file for chunking test"])?;
+    let commit_output = project.run_blaze(&["commit", "-m", "Add large file for chunking test"])?;
     println!("{}", commit_output);
     success("Large file handled successfully");
 
     // Step 17: Final statistics
     step(17, "Final repository statistics");
-    let stats_output = project.run_fastvc(&["stats"])?;
+    let stats_output = project.run_blaze(&["stats"])?;
     println!("{}", stats_output);
 
     // Step 18: Show complete log
     step(18, "Complete commit history");
-    let log_output = project.run_fastvc(&["log", "--limit", "10"])?;
+    let log_output = project.run_blaze(&["log", "--limit", "10"])?;
     println!("{}", log_output);
 
     // Summary
@@ -307,9 +300,9 @@ fn main() -> std::io::Result<()> {
     println!("• Processed various file types and sizes");
     println!("• Demonstrated deduplication with identical content");
     println!("• Verified data integrity and restoration");
-    println!("• Tested all major FastVC operations");
+    println!("• Tested all major Blaze operations");
 
-    println!("\n✅ FastVC integration test completed successfully!");
+    println!("\n✅ Blaze integration test completed successfully!");
     println!("   All features working as expected.");
 
     Ok(())

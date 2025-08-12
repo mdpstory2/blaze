@@ -22,9 +22,9 @@
 ehthumbs.db
 Thumbs.db
 
-# FastVC repositories (for testing)
-**/.fastvc/
-test/.fastvc/
+# Blaze repositories (for testing)
+**/.blaze/
+test/.blaze/
 
 # Temporary files
 *.tmp

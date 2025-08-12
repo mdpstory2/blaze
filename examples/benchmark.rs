@@ -1,23 +1,26 @@
 #!/usr/bin/env cargo script
 
-//! FastVC Benchmark Example
+//! Blaze Benchmark Example
 //!
-//! This example demonstrates FastVC performance by creating various types of files
+//! This example demonstrates Blaze performance by creating various types of files
 //! and measuring operations like add, commit, and checkout.
 //!
 //! Run with: cargo run --example benchmark
 
 use std::fs::{self, File};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
+
+type SetupFn = Box<dyn Fn(&Path) -> std::io::Result<()>>;
+type OperationFn = Box<dyn Fn(&Path) -> std::io::Result<Duration>>;
 
 // Simple benchmark structure
 struct Benchmark {
     name: String,
-    setup: Box<dyn Fn(&Path) -> std::io::Result<()>>,
-    operation: Box<dyn Fn(&Path) -> std::io::Result<Duration>>,
+    setup: SetupFn,
+    operation: OperationFn,
 }
 
 impl Benchmark {
@@ -79,7 +82,7 @@ fn create_large_file(dir: &Path, size: usize) -> std::io::Result<()> {
     let mut file = File::create(&file_path)?;
 
     // Create a large file with repeating pattern
-    let pattern = b"FastVC is a chunk-based version control system. ";
+    let pattern = b"Blaze is a chunk-based version control system. ";
     let pattern_len = pattern.len();
     let mut written = 0;
 
@@ -92,10 +95,10 @@ fn create_large_file(dir: &Path, size: usize) -> std::io::Result<()> {
     Ok(())
 }
 
-fn run_fastvc_command(dir: &Path, args: &[&str]) -> std::io::Result<Duration> {
+fn run_blaze_command(dir: &Path, args: &[&str]) -> std::io::Result<Duration> {
     let start = Instant::now();
 
-    let output = std::process::Command::new("../target/release/fastvc")
+    let output = std::process::Command::new("../target/release/blaze")
         .current_dir(dir)
         .args(args)
         .output()?;
@@ -103,12 +106,9 @@ fn run_fastvc_command(dir: &Path, args: &[&str]) -> std::io::Result<Duration> {
     let duration = start.elapsed();
 
     if !output.status.success() {
-        eprintln!("Command failed: fastvc {:?}", args);
+        eprintln!("Command failed: blaze {:?}", args);
         eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "FastVC command failed",
-        ));
+        return Err(std::io::Error::other("Blaze command failed"));
     }
 
     Ok(duration)
@@ -118,7 +118,7 @@ fn benchmark_init() -> Benchmark {
     Benchmark::new(
         "Repository Initialization",
         |_dir| Ok(()),
-        |dir| run_fastvc_command(dir, &["init"]),
+        |dir| run_blaze_command(dir, &["init"]),
     )
 }
 
@@ -127,8 +127,8 @@ fn benchmark_small_files() -> Benchmark {
         "Add 100 Small Files (1KB each)",
         |dir| create_test_files(dir, 100, 1024, "small"),
         |dir| {
-            run_fastvc_command(dir, &["init"])?;
-            run_fastvc_command(dir, &["add", "."])
+            run_blaze_command(dir, &["init"])?;
+            run_blaze_command(dir, &["add", "."])
         },
     )
 }
@@ -138,8 +138,8 @@ fn benchmark_medium_files() -> Benchmark {
         "Add 50 Medium Files (100KB each)",
         |dir| create_test_files(dir, 50, 100 * 1024, "medium"),
         |dir| {
-            run_fastvc_command(dir, &["init"])?;
-            run_fastvc_command(dir, &["add", "."])
+            run_blaze_command(dir, &["init"])?;
+            run_blaze_command(dir, &["add", "."])
         },
     )
 }
@@ -149,8 +149,8 @@ fn benchmark_large_file() -> Benchmark {
         "Add 1 Large File (10MB)",
         |dir| create_large_file(dir, 10 * 1024 * 1024),
         |dir| {
-            run_fastvc_command(dir, &["init"])?;
-            run_fastvc_command(dir, &["add", "."])
+            run_blaze_command(dir, &["init"])?;
+            run_blaze_command(dir, &["add", "."])
         },
     )
 }
@@ -160,8 +160,8 @@ fn benchmark_duplicates() -> Benchmark {
         "Add 200 Duplicate Files (deduplication test)",
         |dir| create_duplicate_files(dir, 200, 5 * 1024),
         |dir| {
-            run_fastvc_command(dir, &["init"])?;
-            run_fastvc_command(dir, &["add", "."])
+            run_blaze_command(dir, &["init"])?;
+            run_blaze_command(dir, &["add", "."])
         },
     )
 }
@@ -171,11 +171,11 @@ fn benchmark_commit() -> Benchmark {
         "Commit 100 Files",
         |dir| {
             create_test_files(dir, 100, 2048, "commit_test")?;
-            run_fastvc_command(dir, &["init"])?;
-            run_fastvc_command(dir, &["add", "."])?;
+            run_blaze_command(dir, &["init"])?;
+            run_blaze_command(dir, &["add", "."])?;
             Ok(())
         },
-        |dir| run_fastvc_command(dir, &["commit", "-m", "Benchmark commit"]),
+        |dir| run_blaze_command(dir, &["commit", "-m", "Benchmark commit"]),
     )
 }
 
@@ -184,9 +184,9 @@ fn benchmark_checkout() -> Benchmark {
         "Checkout Files",
         |dir| {
             create_test_files(dir, 50, 4096, "checkout_test")?;
-            run_fastvc_command(dir, &["init"])?;
-            run_fastvc_command(dir, &["add", "."])?;
-            run_fastvc_command(dir, &["commit", "-m", "Initial commit"])?;
+            run_blaze_command(dir, &["init"])?;
+            run_blaze_command(dir, &["add", "."])?;
+            run_blaze_command(dir, &["commit", "-m", "Initial commit"])?;
 
             // Modify files to test checkout restoration
             create_test_files(dir, 50, 2048, "modified")?;
@@ -194,22 +194,19 @@ fn benchmark_checkout() -> Benchmark {
         },
         |dir| {
             // Get the commit hash from log and checkout
-            let log_output = std::process::Command::new("../target/release/fastvc")
+            let log_output = std::process::Command::new("../target/release/blaze")
                 .current_dir(dir)
-                .args(&["log", "--limit", "1"])
+                .args(["log", "--limit", "1"])
                 .output()
                 .expect("Failed to get log");
 
             let log_str = String::from_utf8_lossy(&log_output.stdout);
             if let Some(line) = log_str.lines().find(|l| l.starts_with("Commit: ")) {
                 let hash = line.replace("Commit: ", "");
-                return run_fastvc_command(dir, &["checkout", &hash]);
+                return run_blaze_command(dir, &["checkout", &hash]);
             }
 
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Could not extract commit hash",
-            ))
+            Err(std::io::Error::other("Could not extract commit hash"))
         },
     )
 }
@@ -246,23 +243,20 @@ fn calculate_dir_size(dir: &Path) -> std::io::Result<u64> {
 }
 
 fn main() -> std::io::Result<()> {
-    println!("FastVC Performance Benchmark");
+    println!("Blaze Performance Benchmark");
     println!("============================");
 
-    // Check if fastvc binary exists
-    if !Path::new("../target/release/fastvc").exists() {
-        println!("Building FastVC in release mode...");
+    // Check if blaze binary exists
+    if !Path::new("../target/release/blaze").exists() {
+        println!("Building Blaze in release mode...");
         let build_result = std::process::Command::new("cargo")
-            .args(&["build", "--release"])
+            .args(["build", "--release"])
             .current_dir("..")
             .status()?;
 
         if !build_result.success() {
-            eprintln!("Failed to build FastVC");
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Build failed",
-            ));
+            eprintln!("❌ Failed to build Blaze");
+            return Err(std::io::Error::other("Build failed"));
         }
     }
 
@@ -286,9 +280,9 @@ fn main() -> std::io::Result<()> {
             Ok(duration) => {
                 results.push((benchmark.name.clone(), duration));
 
-                // Show repository stats if .fastvc exists
-                if temp_path.join(".fastvc").exists() {
-                    if let Ok(repo_size) = calculate_dir_size(&temp_path.join(".fastvc")) {
+                // Show repository stats if .blaze exists
+                if temp_path.join(".blaze").exists() {
+                    if let Ok(repo_size) = calculate_dir_size(&temp_path.join(".blaze")) {
                         println!("  Repository size: {}", format_size(repo_size));
                     }
                 }

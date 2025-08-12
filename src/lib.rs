@@ -34,6 +34,6 @@ mod tests {
     fn test_lib_exports() {
         // Basic smoke test to ensure exports work
         let _config = CHUNK_SIZE;
-        assert!(CHUNK_SIZE > 0);
+        assert_eq!(CHUNK_SIZE, 65536);
     }
 }

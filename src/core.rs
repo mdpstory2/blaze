@@ -499,64 +499,6 @@ impl Blaze {
         Ok(operations.join(", "))
     }
 
-    /// Clone repository (placeholder)
-    pub fn clone(
-        &self,
-        _source: &str,
-        _dest: &str,
-        _shallow: bool,
-        _jobs: Option<usize>,
-    ) -> Result<()> {
-        Err(BlazeError::Repository(
-            "Clone not yet implemented".to_string(),
-        ))
-    }
-
-    /// Diff files (placeholder)
-    pub fn diff(
-        &self,
-        _from: Option<String>,
-        _to: Option<String>,
-        _name_only: bool,
-        _stat: bool,
-    ) -> Result<()> {
-        Err(BlazeError::Repository(
-            "Diff not yet implemented".to_string(),
-        ))
-    }
-
-    /// Merge branches (placeholder)
-    pub fn merge(&self, _branch: &str, _message: Option<String>, _squash: bool) -> Result<String> {
-        Err(BlazeError::Repository(
-            "Merge not yet implemented".to_string(),
-        ))
-    }
-
-    /// Configuration operations (placeholders)
-    pub fn get_config(&self, _key: &str) -> Result<String> {
-        Err(BlazeError::Repository(
-            "Config not yet implemented".to_string(),
-        ))
-    }
-
-    pub fn set_config(&self, _key: &str, _value: &str) -> Result<()> {
-        Err(BlazeError::Repository(
-            "Config not yet implemented".to_string(),
-        ))
-    }
-
-    pub fn list_config(&self) -> Result<()> {
-        Err(BlazeError::Repository(
-            "Config not yet implemented".to_string(),
-        ))
-    }
-
-    pub fn edit_config(&self) -> Result<()> {
-        Err(BlazeError::Repository(
-            "Config not yet implemented".to_string(),
-        ))
-    }
-
     // Private helper methods
 
     fn is_repo(&self) -> bool {
@@ -645,7 +587,7 @@ impl Blaze {
                 let relative_path = entry.path().strip_prefix(&self.repo_path).unwrap();
 
                 let patterns_refs: Vec<&str> = ignore_patterns.iter().map(|s| s.as_str()).collect();
-                if !should_ignore_path(&relative_path, &patterns_refs) {
+                if !should_ignore_path(relative_path, &patterns_refs) {
                     files.push(entry.path().to_path_buf());
                 }
             }
@@ -755,7 +697,7 @@ impl Blaze {
                 let relative_path = entry.path().strip_prefix(&self.repo_path).unwrap();
 
                 let patterns_refs: Vec<&str> = ignore_patterns.iter().map(|s| s.as_str()).collect();
-                if !should_ignore_path(&relative_path, &patterns_refs) {
+                if !should_ignore_path(relative_path, &patterns_refs) {
                     // Create a basic file record for comparison
                     let chunks = chunk_file(entry.path())?;
                     let chunk_hashes: Vec<String> = chunks.iter().map(|c| c.hash.clone()).collect();
@@ -811,7 +753,7 @@ impl Blaze {
     }
 
     fn restore_files(&mut self, files: &HashMap<String, FileRecord>) -> Result<()> {
-        for (_, record) in files {
+        for record in files.values() {
             let file_path = self.repo_path.join(&record.path);
 
             // Create parent directories

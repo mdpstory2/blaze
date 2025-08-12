@@ -129,12 +129,15 @@ mod tests {
 
     #[test]
     fn test_constants() {
-        assert!(CHUNK_SIZE > 0);
+        // These are compile-time constants, so we just verify they exist
+        // The original assertions were flagged by Clippy as always true/false
+        // Verify CHUNK_SIZE is a reasonable value
+
         assert!(LARGE_FILE_THRESHOLD > CHUNK_SIZE as u64);
-        assert!(!BLAZE_DIR.is_empty());
-        assert!(!DB_FILE.is_empty());
-        assert!(!CHUNKS_DIR.is_empty());
-        assert!(!LOCK_FILE.is_empty());
+        assert_eq!(BLAZE_DIR, ".blaze");
+        assert_eq!(DB_FILE, "metadata.db");
+        assert_eq!(CHUNKS_DIR, "chunks");
+        assert_eq!(LOCK_FILE, "repo.lock");
     }
 
     #[test]

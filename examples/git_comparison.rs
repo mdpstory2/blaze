@@ -1,14 +1,14 @@
 #!/usr/bin/env cargo script
 
-//! FastVC vs Git Performance Comparison
+//! Blaze vs Git Performance Comparison
 //!
-//! This benchmark compares FastVC against Git for various operations
+//! This benchmark compares Blaze against Git for various operations
 //! to provide objective performance analysis.
 //!
 //! Run with: cargo run --example git_comparison
 
-use std::fs::{self, File};
-use std::io::Write;
+use std::fs;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -16,19 +16,19 @@ use tempfile::TempDir;
 
 struct BenchmarkResult {
     operation: String,
-    fastvc_time: Duration,
+    blaze_time: Duration,
     git_time: Duration,
-    fastvc_size: u64,
+    blaze_size: u64,
     git_size: u64,
 }
 
 impl BenchmarkResult {
     fn speedup(&self) -> f64 {
-        self.git_time.as_secs_f64() / self.fastvc_time.as_secs_f64()
+        self.git_time.as_secs_f64() / self.blaze_time.as_secs_f64()
     }
 
     fn size_ratio(&self) -> f64 {
-        self.fastvc_size as f64 / self.git_size as f64
+        self.blaze_size as f64 / self.git_size as f64
     }
 }
 
@@ -77,9 +77,10 @@ fn calculate_dir_size(path: &Path) -> std::io::Result<u64> {
 }
 
 struct TestRepo {
+    #[allow(dead_code)]
     temp_dir: TempDir,
     path: PathBuf,
-    fastvc_binary: PathBuf,
+    blaze_binary: PathBuf,
 }
 
 impl TestRepo {
@@ -87,12 +88,12 @@ impl TestRepo {
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path().to_path_buf();
         let current_dir = std::env::current_dir()?;
-        let fastvc_binary = current_dir.join("target/release/fastvc");
+        let blaze_binary = current_dir.join("target/release/blaze");
 
         Ok(Self {
             temp_dir,
             path,
-            fastvc_binary,
+            blaze_binary,
         })
     }
 
@@ -105,9 +106,9 @@ impl TestRepo {
         Ok(())
     }
 
-    fn run_fastvc(&self, args: &[&str]) -> std::io::Result<Duration> {
+    fn run_blaze(&self, args: &[&str]) -> std::io::Result<Duration> {
         let start = Instant::now();
-        let output = Command::new(&self.fastvc_binary)
+        let output = Command::new(&self.blaze_binary)
             .current_dir(&self.path)
             .args(args)
             .output()?;
@@ -115,10 +116,10 @@ impl TestRepo {
         let duration = start.elapsed();
 
         if !output.status.success() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("FastVC command failed: {:?}", args),
-            ));
+            return Err(std::io::Error::other(format!(
+                "FastVC command failed: {:?}",
+                args
+            )));
         }
 
         Ok(duration)
@@ -134,17 +135,17 @@ impl TestRepo {
         let duration = start.elapsed();
 
         if !output.status.success() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Git command failed: {:?}", args),
-            ));
+            return Err(std::io::Error::other(format!(
+                "Git command failed: {:?}",
+                args
+            )));
         }
 
         Ok(duration)
     }
 
-    fn get_fastvc_size(&self) -> std::io::Result<u64> {
-        calculate_dir_size(&self.path.join(".fastvc"))
+    fn get_blaze_size(&self) -> std::io::Result<u64> {
+        calculate_dir_size(&self.path.join(".blaze"))
     }
 
     fn get_git_size(&self) -> std::io::Result<u64> {
@@ -155,12 +156,12 @@ impl TestRepo {
 fn benchmark_init() -> std::io::Result<BenchmarkResult> {
     println!("🔹 Benchmarking: Repository Initialization");
 
-    let fastvc_repo = TestRepo::new()?;
+    let blaze_repo = TestRepo::new()?;
     let git_repo = TestRepo::new()?;
 
-    // Benchmark FastVC init
-    let fastvc_time = fastvc_repo.run_fastvc(&["init"])?;
-    let fastvc_size = fastvc_repo.get_fastvc_size()?;
+    // Benchmark Blaze init
+    let blaze_time = blaze_repo.run_blaze(&["init"])?;
+    let blaze_size = blaze_repo.get_blaze_size()?;
 
     // Benchmark Git init
     let git_time = git_repo.run_git(&["init"])?;
@@ -168,9 +169,9 @@ fn benchmark_init() -> std::io::Result<BenchmarkResult> {
 
     Ok(BenchmarkResult {
         operation: "Repository Init".to_string(),
-        fastvc_time,
+        blaze_time,
         git_time,
-        fastvc_size,
+        blaze_size,
         git_size,
     })
 }
@@ -178,28 +179,28 @@ fn benchmark_init() -> std::io::Result<BenchmarkResult> {
 fn benchmark_small_files() -> std::io::Result<BenchmarkResult> {
     println!("🔹 Benchmarking: 100 Small Files (1KB each)");
 
-    let fastvc_repo = TestRepo::new()?;
+    let blaze_repo = TestRepo::new()?;
     let git_repo = TestRepo::new()?;
 
     // Create identical test files
     let content = "Small file content.\n".repeat(50); // ~1KB
     for i in 0..100 {
         let filename = format!("small_{:03}.txt", i);
-        fastvc_repo.create_file(&filename, content.as_bytes())?;
+        blaze_repo.create_file(&filename, content.as_bytes())?;
         git_repo.create_file(&filename, content.as_bytes())?;
     }
 
     // Initialize repositories
-    fastvc_repo.run_fastvc(&["init"])?;
+    blaze_repo.run_blaze(&["init"])?;
     git_repo.run_git(&["init"])?;
     git_repo.run_git(&["config", "user.email", "test@example.com"])?;
     git_repo.run_git(&["config", "user.name", "Test User"])?;
 
-    // Benchmark FastVC
-    let fastvc_add_time = fastvc_repo.run_fastvc(&["add", "."])?;
-    let fastvc_commit_time = fastvc_repo.run_fastvc(&["commit", "-m", "Add small files"])?;
-    let fastvc_total_time = fastvc_add_time + fastvc_commit_time;
-    let fastvc_size = fastvc_repo.get_fastvc_size()?;
+    // Benchmark Blaze
+    let blaze_add_time = blaze_repo.run_blaze(&["add", "."])?;
+    let blaze_commit_time = blaze_repo.run_blaze(&["commit", "-m", "Add small files"])?;
+    let blaze_total_time = blaze_add_time + blaze_commit_time;
+    let blaze_size = blaze_repo.get_blaze_size()?;
 
     // Benchmark Git
     let git_add_time = git_repo.run_git(&["add", "."])?;
@@ -209,9 +210,9 @@ fn benchmark_small_files() -> std::io::Result<BenchmarkResult> {
 
     Ok(BenchmarkResult {
         operation: "100 Small Files".to_string(),
-        fastvc_time: fastvc_total_time,
+        blaze_time: blaze_total_time,
         git_time: git_total_time,
-        fastvc_size,
+        blaze_size,
         git_size,
     })
 }
@@ -219,25 +220,25 @@ fn benchmark_small_files() -> std::io::Result<BenchmarkResult> {
 fn benchmark_large_file() -> std::io::Result<BenchmarkResult> {
     println!("🔹 Benchmarking: Single Large File (10MB)");
 
-    let fastvc_repo = TestRepo::new()?;
+    let blaze_repo = TestRepo::new()?;
     let git_repo = TestRepo::new()?;
 
     // Create a 10MB file
     let content = vec![b'X'; 10 * 1024 * 1024]; // 10MB
-    fastvc_repo.create_file("large_file.dat", &content)?;
+    blaze_repo.create_file("large_file.dat", &content)?;
     git_repo.create_file("large_file.dat", &content)?;
 
     // Initialize repositories
-    fastvc_repo.run_fastvc(&["init"])?;
+    blaze_repo.run_blaze(&["init"])?;
     git_repo.run_git(&["init"])?;
     git_repo.run_git(&["config", "user.email", "test@example.com"])?;
     git_repo.run_git(&["config", "user.name", "Test User"])?;
 
-    // Benchmark FastVC
-    let fastvc_add_time = fastvc_repo.run_fastvc(&["add", "."])?;
-    let fastvc_commit_time = fastvc_repo.run_fastvc(&["commit", "-m", "Add large file"])?;
-    let fastvc_total_time = fastvc_add_time + fastvc_commit_time;
-    let fastvc_size = fastvc_repo.get_fastvc_size()?;
+    // Benchmark Blaze
+    let blaze_add_time = blaze_repo.run_blaze(&["add", "."])?;
+    let blaze_commit_time = blaze_repo.run_blaze(&["commit", "-m", "Add large file"])?;
+    let blaze_total_time = blaze_add_time + blaze_commit_time;
+    let blaze_size = blaze_repo.get_blaze_size()?;
 
     // Benchmark Git
     let git_add_time = git_repo.run_git(&["add", "."])?;
@@ -247,9 +248,9 @@ fn benchmark_large_file() -> std::io::Result<BenchmarkResult> {
 
     Ok(BenchmarkResult {
         operation: "10MB Large File".to_string(),
-        fastvc_time: fastvc_total_time,
+        blaze_time: blaze_total_time,
         git_time: git_total_time,
-        fastvc_size,
+        blaze_size,
         git_size,
     })
 }
@@ -257,28 +258,28 @@ fn benchmark_large_file() -> std::io::Result<BenchmarkResult> {
 fn benchmark_duplicates() -> std::io::Result<BenchmarkResult> {
     println!("🔹 Benchmarking: Duplicate Content (Deduplication Test)");
 
-    let fastvc_repo = TestRepo::new()?;
+    let blaze_repo = TestRepo::new()?;
     let git_repo = TestRepo::new()?;
 
     // Create 50 files with identical content (should deduplicate well)
     let content = "This is duplicate content that should compress well.\n".repeat(1000); // ~50KB per file
     for i in 0..50 {
         let filename = format!("dup_{:03}.txt", i);
-        fastvc_repo.create_file(&filename, content.as_bytes())?;
+        blaze_repo.create_file(&filename, content.as_bytes())?;
         git_repo.create_file(&filename, content.as_bytes())?;
     }
 
     // Initialize repositories
-    fastvc_repo.run_fastvc(&["init"])?;
+    blaze_repo.run_blaze(&["init"])?;
     git_repo.run_git(&["init"])?;
     git_repo.run_git(&["config", "user.email", "test@example.com"])?;
     git_repo.run_git(&["config", "user.name", "Test User"])?;
 
-    // Benchmark FastVC
-    let fastvc_add_time = fastvc_repo.run_fastvc(&["add", "."])?;
-    let fastvc_commit_time = fastvc_repo.run_fastvc(&["commit", "-m", "Add duplicate files"])?;
-    let fastvc_total_time = fastvc_add_time + fastvc_commit_time;
-    let fastvc_size = fastvc_repo.get_fastvc_size()?;
+    // Benchmark Blaze
+    let blaze_add_time = blaze_repo.run_blaze(&["add", "."])?;
+    let blaze_commit_time = blaze_repo.run_blaze(&["commit", "-m", "Add duplicate files"])?;
+    let blaze_total_time = blaze_add_time + blaze_commit_time;
+    let blaze_size = blaze_repo.get_blaze_size()?;
 
     // Benchmark Git
     let git_add_time = git_repo.run_git(&["add", "."])?;
@@ -288,9 +289,9 @@ fn benchmark_duplicates() -> std::io::Result<BenchmarkResult> {
 
     Ok(BenchmarkResult {
         operation: "50 Duplicate Files".to_string(),
-        fastvc_time: fastvc_total_time,
+        blaze_time: blaze_total_time,
         git_time: git_total_time,
-        fastvc_size,
+        blaze_size,
         git_size,
     })
 }
@@ -298,7 +299,7 @@ fn benchmark_duplicates() -> std::io::Result<BenchmarkResult> {
 fn benchmark_mixed_files() -> std::io::Result<BenchmarkResult> {
     println!("🔹 Benchmarking: Mixed File Types (Realistic Repository)");
 
-    let fastvc_repo = TestRepo::new()?;
+    let blaze_repo = TestRepo::new()?;
     let git_repo = TestRepo::new()?;
 
     // Create a realistic mix of files
@@ -309,39 +310,39 @@ fn benchmark_mixed_files() -> std::io::Result<BenchmarkResult> {
             i, i
         );
         let filename = format!("src/file_{:02}.rs", i);
-        fastvc_repo.create_file(&filename, content.as_bytes())?;
+        blaze_repo.create_file(&filename, content.as_bytes())?;
         git_repo.create_file(&filename, content.as_bytes())?;
     }
 
     // Configuration files
     let config_content = "{\n  \"name\": \"test-project\",\n  \"version\": \"1.0.0\"\n}\n";
-    fastvc_repo.create_file("package.json", config_content.as_bytes())?;
+    blaze_repo.create_file("package.json", config_content.as_bytes())?;
     git_repo.create_file("package.json", config_content.as_bytes())?;
 
     // README
     let readme_content = "# Test Project\n\nThis is a test project for benchmarking.\n\n## Installation\n\nRun the build script.\n";
-    fastvc_repo.create_file("README.md", readme_content.as_bytes())?;
+    blaze_repo.create_file("README.md", readme_content.as_bytes())?;
     git_repo.create_file("README.md", readme_content.as_bytes())?;
 
     // Binary-like files
     for i in 0..5 {
         let binary_content = vec![i as u8; 10240]; // 10KB of binary data
         let filename = format!("assets/image_{}.dat", i);
-        fastvc_repo.create_file(&filename, &binary_content)?;
+        blaze_repo.create_file(&filename, &binary_content)?;
         git_repo.create_file(&filename, &binary_content)?;
     }
 
     // Initialize repositories
-    fastvc_repo.run_fastvc(&["init"])?;
+    blaze_repo.run_blaze(&["init"])?;
     git_repo.run_git(&["init"])?;
     git_repo.run_git(&["config", "user.email", "test@example.com"])?;
     git_repo.run_git(&["config", "user.name", "Test User"])?;
 
-    // Benchmark FastVC
-    let fastvc_add_time = fastvc_repo.run_fastvc(&["add", "."])?;
-    let fastvc_commit_time = fastvc_repo.run_fastvc(&["commit", "-m", "Initial project setup"])?;
-    let fastvc_total_time = fastvc_add_time + fastvc_commit_time;
-    let fastvc_size = fastvc_repo.get_fastvc_size()?;
+    // Benchmark Blaze
+    let blaze_add_time = blaze_repo.run_blaze(&["add", "."])?;
+    let blaze_commit_time = blaze_repo.run_blaze(&["commit", "-m", "Initial project setup"])?;
+    let blaze_total_time = blaze_add_time + blaze_commit_time;
+    let blaze_size = blaze_repo.get_blaze_size()?;
 
     // Benchmark Git
     let git_add_time = git_repo.run_git(&["add", "."])?;
@@ -351,9 +352,9 @@ fn benchmark_mixed_files() -> std::io::Result<BenchmarkResult> {
 
     Ok(BenchmarkResult {
         operation: "Mixed File Types".to_string(),
-        fastvc_time: fastvc_total_time,
+        blaze_time: blaze_total_time,
         git_time: git_total_time,
-        fastvc_size,
+        blaze_size,
         git_size,
     })
 }
@@ -363,7 +364,7 @@ fn print_results_table(results: &[BenchmarkResult]) {
     println!("═════════════════════════════════════════════════════════════════════════════");
     println!(
         "{:<20} {:>12} {:>12} {:>8} {:>12} {:>12} {:>8}",
-        "Operation", "FastVC", "Git", "Speedup", "FastVC Size", "Git Size", "Size Ratio"
+        "Operation", "Blaze", "Git", "Speedup", "Blaze Size", "Git Size", "Size Ratio"
     );
     println!("─────────────────────────────────────────────────────────────────────────────");
 
@@ -383,10 +384,10 @@ fn print_results_table(results: &[BenchmarkResult]) {
         println!(
             "{:<20} {:>12} {:>12} {:>8} {:>12} {:>12} {:>8}",
             result.operation,
-            format_duration(result.fastvc_time),
+            format_duration(result.blaze_time),
             format_duration(result.git_time),
             speedup,
-            format_size(result.fastvc_size),
+            format_size(result.blaze_size),
             format_size(result.git_size),
             size_ratio
         );
@@ -410,14 +411,14 @@ fn print_analysis(results: &[BenchmarkResult]) {
         }
     }
 
-    println!("FastVC vs Git Performance:");
+    println!("Blaze vs Git Performance:");
     println!(
-        "• FastVC is faster in {}/{} test cases",
+        "• Blaze is faster in {}/{} test cases",
         faster_count,
         results.len()
     );
     println!(
-        "• FastVC uses less storage in {}/{} test cases",
+        "• Blaze uses less storage in {}/{} test cases",
         smaller_count,
         results.len()
     );
@@ -438,7 +439,7 @@ fn print_analysis(results: &[BenchmarkResult]) {
     if let Some(best) = best_speed {
         if best.speedup() > 1.0 {
             println!(
-                "• Best FastVC performance: {} ({:.1}x faster than Git)",
+                "• Best Blaze performance: {} ({:.1}x faster than Git)",
                 best.operation,
                 best.speedup()
             );
@@ -448,7 +449,7 @@ fn print_analysis(results: &[BenchmarkResult]) {
     if let Some(worst) = worst_speed {
         if worst.speedup() < 1.0 {
             println!(
-                "• Worst FastVC performance: {} ({:.1}x slower than Git)",
+                "• Worst Blaze performance: {} ({:.1}x slower than Git)",
                 worst.operation,
                 1.0 / worst.speedup()
             );
@@ -467,33 +468,30 @@ fn print_analysis(results: &[BenchmarkResult]) {
 
     println!("\n📝 Technical Notes:");
     println!("• Git has 15+ years of optimization and is written in C");
-    println!("• FastVC is a proof-of-concept implementation in Rust");
+    println!("• Blaze is a proof-of-concept implementation in Rust");
     println!("• Git uses sophisticated delta compression and pack files");
-    println!("• FastVC uses chunk-based deduplication with BLAKE3 hashing");
-    println!("• For large files, FastVC's chunking approach may have advantages");
+    println!("• Blaze uses chunk-based deduplication with BLAKE3 hashing");
+    println!("• For large files, Blaze's chunking approach may have advantages");
     println!("• For typical source code, Git's optimizations are hard to beat");
 }
 
 fn main() -> std::io::Result<()> {
-    println!("FastVC vs Git Performance Comparison");
+    println!("Blaze vs Git Performance Comparison");
     println!("====================================");
 
     // Check prerequisites
     let current_dir = std::env::current_dir()?;
-    let fastvc_binary = current_dir.join("target/release/fastvc");
+    let blaze_binary = current_dir.join("target/release/blaze");
 
-    if !fastvc_binary.exists() {
-        println!("🔨 Building FastVC in release mode...");
+    if !blaze_binary.exists() {
+        println!("🔨 Building Blaze in release mode...");
         let build_result = Command::new("cargo")
-            .args(&["build", "--release"])
+            .args(["build", "--release"])
             .status()?;
 
         if !build_result.success() {
-            eprintln!("❌ Failed to build FastVC");
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Build failed",
-            ));
+            eprintln!("❌ Failed to build Blaze");
+            return Err(std::io::Error::other("Build failed"));
         }
     }
 

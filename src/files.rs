@@ -183,13 +183,9 @@ fn chunk_regular_file(mut file: File) -> Result<Vec<FileChunk>> {
 
 /// Chunk a large file using memory mapping for better performance
 fn chunk_large_file(file: File, file_size: u64) -> Result<Vec<FileChunk>> {
-    let mmap = unsafe {
-        MmapOptions::new()
-            .map(&file)
-            .map_err(|e| BlazeError::Io(e))?
-    };
+    let mmap = unsafe { MmapOptions::new().map(&file).map_err(BlazeError::Io)? };
 
-    let chunk_count = ((file_size as usize) + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    let chunk_count = (file_size as usize).div_ceil(CHUNK_SIZE);
     let chunks: Result<Vec<_>> = (0..chunk_count)
         .into_par_iter()
         .map(|i| {

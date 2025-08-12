@@ -204,7 +204,7 @@ impl Database {
             .context("Failed to prepare chunk hash query")?;
 
         let hashes: Result<Vec<_>> = stmt
-            .query_map([], |row| Ok(row.get::<_, String>(0)?))?
+            .query_map([], |row| row.get::<_, String>(0))?
             .map(|row| row.map_err(BlazeError::from))
             .collect();
 
@@ -567,7 +567,7 @@ impl Database {
             .context("Failed to prepare integrity check")?;
 
         let issues: Result<Vec<_>> = stmt
-            .query_map([], |row| Ok(row.get::<_, String>(0)?))?
+            .query_map([], |row| row.get::<_, String>(0))?
             .map(|row| row.map_err(BlazeError::from))
             .collect();
 
@@ -667,8 +667,10 @@ mod tests {
 
     fn create_test_db() -> (TempDir, Database) {
         let temp_dir = TempDir::new().unwrap();
-        let mut config = DatabaseConfig::default();
-        config.enable_foreign_keys = false; // Disable for tests
+        let config = DatabaseConfig {
+            enable_foreign_keys: false, // Disable for tests
+            ..Default::default()
+        };
         let db = Database::with_config(temp_dir.path(), config).unwrap();
         db.init().unwrap();
         (temp_dir, db)
