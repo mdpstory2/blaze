@@ -260,9 +260,6 @@ check_active_repositories() {
     local search_dirs=()
 
     # Add only if directories exist and aren't likely to contain dev projects
-    [ -d "$HOME/Documents" ] && search_dirs+=("$HOME/Documents")
-    [ -d "$HOME/Desktop" ] && search_dirs+=("$HOME/Desktop")
-
     if [ ${#search_dirs[@]} -eq 0 ]; then
         info "No safe directories to scan found"
         return 0
