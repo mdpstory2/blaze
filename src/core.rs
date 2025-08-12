@@ -574,13 +574,7 @@ impl Blaze {
         for entry in WalkDir::new(&self.repo_path)
             .follow_links(false)
             .into_iter()
-            .filter_entry(|e| {
-                if let Some(name) = e.file_name().to_str() {
-                    !name.starts_with('.') || name == ".blazeignore"
-                } else {
-                    true
-                }
-            })
+            .filter_entry(|e| !e.path().starts_with(&self.blaze_path))
         {
             let entry = entry?;
             if entry.file_type().is_file() {
@@ -612,24 +606,43 @@ impl Blaze {
 
     fn find_files_matching(&self, pattern: &str) -> Result<Vec<PathBuf>> {
         let mut files = Vec::new();
+        let ignore_patterns = self.load_ignore_patterns()?;
+        let patterns_refs: Vec<&str> = ignore_patterns.iter().map(|s| s.as_str()).collect();
         let pattern_path = self.repo_path.join(pattern);
 
         if pattern_path.is_file() {
-            files.push(pattern_path);
+            // Check if single file should be ignored
+            let relative_path = pattern_path.strip_prefix(&self.repo_path).unwrap();
+            if !should_ignore_path(relative_path, &patterns_refs) {
+                files.push(pattern_path);
+            }
         } else if pattern_path.is_dir() {
-            for entry in WalkDir::new(&pattern_path) {
+            for entry in WalkDir::new(&pattern_path)
+                .follow_links(false)
+                .into_iter()
+                .filter_entry(|e| !e.path().starts_with(&self.blaze_path))
+            {
                 let entry = entry?;
                 if entry.file_type().is_file() {
-                    files.push(entry.path().to_path_buf());
+                    let relative_path = entry.path().strip_prefix(&self.repo_path).unwrap();
+                    if !should_ignore_path(relative_path, &patterns_refs) {
+                        files.push(entry.path().to_path_buf());
+                    }
                 }
             }
         } else {
             // Pattern matching
-            for entry in WalkDir::new(&self.repo_path) {
+            for entry in WalkDir::new(&self.repo_path)
+                .follow_links(false)
+                .into_iter()
+                .filter_entry(|e| !e.path().starts_with(&self.blaze_path))
+            {
                 let entry = entry?;
                 if entry.file_type().is_file() {
                     let relative_path = entry.path().strip_prefix(&self.repo_path).unwrap();
-                    if relative_path.to_string_lossy().contains(pattern) {
+                    if relative_path.to_string_lossy().contains(pattern)
+                        && !should_ignore_path(relative_path, &patterns_refs)
+                    {
                         files.push(entry.path().to_path_buf());
                     }
                 }
