@@ -244,26 +244,40 @@ remove_shell_completions() {
 check_active_repositories() {
     local found_repos=0
 
-    info "Scanning for active Blaze repositories..."
+    # Make scanning completely optional and off by default
+    echo
+    warn "Repository scanning can help prevent accidental data loss"
+    warn "but may be slow on systems with many files."
+    echo
+    if ! confirm "Scan for active Blaze repositories?"; then
+        info "Skipping repository scan - proceeding with uninstallation"
+        return 0
+    fi
 
-    # Look for .blaze directories in common places
-    local search_dirs=(
-        "$HOME"
-        "$HOME/Projects"
-        "$HOME/Code"
-        "$HOME/src"
-        "$HOME/Documents"
-        "/tmp"
-    )
+    info "Scanning for Blaze repositories in safe locations only..."
+
+    # Only scan very specific, safe locations - avoid development directories entirely
+    local search_dirs=()
+
+    # Add only if directories exist and aren't likely to contain dev projects
+    [ -d "$HOME/Documents" ] && search_dirs+=("$HOME/Documents")
+    [ -d "$HOME/Desktop" ] && search_dirs+=("$HOME/Desktop")
+
+    if [ ${#search_dirs[@]} -eq 0 ]; then
+        info "No safe directories to scan found"
+        return 0
+    fi
 
     for dir in "${search_dirs[@]}"; do
-        if [ -d "$dir" ]; then
-            while IFS= read -r -d '' blaze_dir; do
-                local repo_dir=$(dirname "$blaze_dir")
-                warn "Found Blaze repository: $repo_dir"
-                found_repos=$((found_repos + 1))
-            done < <(find "$dir" -type d -name ".blaze" -print0 2>/dev/null | head -20)
-        fi
+        while IFS= read -r -d '' blaze_dir; do
+            local repo_dir=$(dirname "$blaze_dir")
+            # Exclude common development patterns
+            if [[ "$repo_dir" =~ (target/|build/|dist/|node_modules/|\.git/|Program/|Code/|src/|dev/|Development/|\.cargo/|\.rustup/|\.cache/) ]]; then
+                continue
+            fi
+            warn "Found Blaze repository: $repo_dir"
+            found_repos=$((found_repos + 1))
+        done < <(find "$dir" -maxdepth 2 -type d -name ".blaze" -print0 2>/dev/null | head -5)
     done
 
     if [ $found_repos -gt 0 ]; then
