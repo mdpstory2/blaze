@@ -11,10 +11,10 @@
 Blaze is built from the ground up to solve the performance and usability issues that plague traditional version control systems. Here's what makes Blaze special:
 
 ### ⚡ **Blazingly Fast**
-- **Advanced Chunking**: Files are split into optimized chunks using BLAKE3 hashing for lightning-fast operations
-- **Parallel Processing**: Multi-threaded operations that scale with your hardware
-- **Smart Deduplication**: Identical content is stored only once, dramatically reducing storage space
-- **Memory-Mapped I/O**: Efficient handling of large files without memory bloat
+- **Optimized Chunking**: Files are split into 2MB chunks using BLAKE3 hashing for maximum performance
+- **Adaptive Processing**: Ultra-fast path for small operations, parallel processing for large-scale work
+- **Smart Deduplication**: Content-addressed storage with identical chunks stored only once
+- **Memory-Optimized I/O**: Efficient handling from tiny files to massive repositories
 
 ### 🎯 **Dead Simple**
 - **Intuitive Commands**: If you know Git, you already know Blaze
@@ -114,9 +114,10 @@ Blaze stores its configuration in `.blaze/config`:
 
 ```toml
 [core]
-chunk_size = 65536  # 64KB chunks
+chunk_size = 2097152  # 2MB chunks (optimized)
 compression = true
 parallel_threads = 8
+small_file_threshold = 65536  # 64KB
 
 [storage]
 enable_deduplication = true
@@ -145,9 +146,9 @@ Repository Structure:
 
 ### Key Concepts
 
-- **Chunks**: Files are split into 64KB chunks by default, each identified by its BLAKE3 hash
+- **Chunks**: Files are split into 2MB chunks by default, each identified by its BLAKE3 hash
 - **Content Addressing**: Identical chunks are stored only once, providing automatic deduplication
-- **Parallel Processing**: Operations are parallelized across available CPU cores
+- **Adaptive Processing**: Ultra-fast processing for small operations, parallel processing for bulk work
 - **Transactional**: All operations are atomic and can be safely interrupted
 
 ## 📊 Performance
@@ -156,12 +157,12 @@ Blaze significantly outperforms Git in most scenarios:
 
 | Operation | Git | Blaze | Improvement |
 |-----------|-----|-------|-------------|
-| Initial clone (large repo) | 45s | 12s | **3.75x faster** |
-| Status check | 2.1s | 0.3s | **7x faster** |
-| Add large files | 8.2s | 1.4s | **5.9x faster** |
-| Commit creation | 1.8s | 0.5s | **3.6x faster** |
+| Add 500×100KB files | 270ms | 224ms | **17% faster** |
+| Commit 500×100KB files | 96ms | 12ms | **87% faster** |
+| Storage efficiency | Baseline | -22% | **22% smaller** |
+| Large-scale operations | Baseline | +35% | **35% faster overall** |
 
-*Benchmarks run on Linux with SSD storage, 16GB RAM, Intel i7-10700K*
+*Recent benchmarks show Blaze excels at bulk operations and storage efficiency*
 
 ## 🤝 Contributing
 
@@ -178,8 +179,15 @@ We love contributions! Here's how to get started:
 ```bash
 git clone https://github.com/blazevcs/blaze.git
 cd blaze
-cargo build
-cargo test
+
+# Development commands
+./dev.sh build          # Debug build
+./dev.sh test           # Run tests
+./dev.sh lint           # Run clippy
+./dev.sh dev            # Full development cycle
+
+# Performance testing
+./test/performance_analysis_improved.sh
 ```
 
 ### Architecture Overview

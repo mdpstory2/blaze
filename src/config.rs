@@ -1,6 +1,6 @@
 //! Configuration constants and settings for Blaze VCS
 
-/// Size of chunks for file processing (2MB - optimized for storage efficiency)
+/// Size of chunks for file processing (2MB - optimized for performance)
 pub const CHUNK_SIZE: usize = 2 * 1024 * 1024;
 
 /// Threshold for considering a file "large" (10MB - optimized for memory mapping with larger chunks)
@@ -38,11 +38,11 @@ pub const MAX_MEMORY_BUFFER: usize = 128 * 1024 * 1024; // 128MB - more aggressi
 /// Compression level for chunk storage (0-9, where 9 is highest compression)
 pub const COMPRESSION_LEVEL: u32 = 6; // Balanced compression for better storage efficiency
 
-/// Small file threshold for fast mode optimizations
-pub const SMALL_FILE_THRESHOLD: u64 = 10 * 1024; // 10KB
+/// Small file threshold for fast mode optimizations - optimized for startup performance
+pub const SMALL_FILE_THRESHOLD: u64 = 64 * 1024; // 64KB - aggressive small file optimization
 
-/// Small repository threshold (number of files)
-pub const SMALL_REPO_THRESHOLD: usize = 50;
+/// Small repository threshold (number of files) - ultra-aggressive for max performance
+pub const SMALL_REPO_THRESHOLD: usize = 10000;
 
 /// File extensions that should always be treated as binary
 pub const BINARY_EXTENSIONS: &[&str] = &[
